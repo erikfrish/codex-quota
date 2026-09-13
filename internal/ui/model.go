@@ -247,6 +247,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.ApplyTargetSelect {
 			return m.handleApplyTargetSelection(keyStr)
 		}
+		if m.ApplyConfirm {
+			return m.handleApplyConfirm(keyStr)
+		}
 		if m.OMPRestoreConfirm {
 			return m.handleOMPRestoreConfirm(keyStr)
 		}

@@ -462,6 +462,86 @@ func TestOpenCodeCompositeFansOutLegacyAndNative(t *testing.T) {
 	assertOpenCode2Row(t, dbPath, "acct-fanout", "access-fanout", true)
 }
 
+func TestSaveOpenCodeAccountRefreshFollowsLoadedPath(t *testing.T) {
+	t.Run("legacy", func(t *testing.T) {
+		root, _ := setupOpenCode2TestEnv(t)
+		loadedPath := filepath.Join(root, "loaded", "auth.json")
+		activePath := filepath.Join(root, "active", "auth.json")
+		t.Setenv("OPENCODE_AUTH_PATH", loadedPath)
+
+		for _, path := range []string{loadedPath, activePath} {
+			if err := writeJSONMap(path, map[string]any{
+				"openai": map[string]any{
+					"type":      "oauth",
+					"access":    "legacy-old",
+					"accountId": "acct-refresh",
+				},
+			}); err != nil {
+				t.Fatal(err)
+			}
+		}
+
+		loaded, err := loadOpenCodeAccountFile(loadedPath, SourceOpenCode, true)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if loaded == nil {
+			t.Fatal("loaded legacy account is nil")
+		}
+		loaded.AccessToken = "legacy-refreshed"
+		t.Setenv("OPENCODE_AUTH_PATH", activePath)
+
+		if err := SaveAccount(loaded); err != nil {
+			t.Fatalf("refresh: %v", err)
+		}
+
+		source, err := loadOpenCodeAccountFile(loadedPath, SourceOpenCode, true)
+		if err != nil {
+			t.Fatal(err)
+		}
+		active, err := loadOpenCodeAccountFile(activePath, SourceOpenCode, true)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if source == nil || source.AccessToken != "legacy-refreshed" {
+			t.Fatalf("loaded legacy path was not refreshed: %#v", source)
+		}
+		if active == nil || active.AccessToken != "legacy-old" {
+			t.Fatalf("switched legacy path was changed: %#v", active)
+		}
+	})
+
+	t.Run("native", func(t *testing.T) {
+		root, _ := setupOpenCode2TestEnv(t)
+		loadedPath := filepath.Join(root, "loaded", "opencode.db")
+		activePath := filepath.Join(root, "active", "opencode.db")
+		t.Setenv("OPENCODE_DB", loadedPath)
+
+		loadedDB := createOpenCode2TestDB(t, loadedPath)
+		insertOpenCode2TestRow(t, loadedDB, "loaded", "Loaded", openCode2Integration, "acct-refresh", "native-old", "refresh", 0, 0, nil, 1)
+		activeDB := createOpenCode2TestDB(t, activePath)
+		insertOpenCode2TestRow(t, activeDB, "active", "Active", openCode2Integration, "acct-refresh", "native-old", "refresh", 0, 0, nil, 1)
+
+		accounts, _, err := loadOpenCode2Accounts(loadedPath)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(accounts) != 1 {
+			t.Fatalf("loaded native accounts = %d, want 1", len(accounts))
+		}
+		loaded := accounts[0]
+		loaded.AccessToken = "native-refreshed"
+		t.Setenv("OPENCODE_DB", activePath)
+
+		if err := SaveAccount(loaded); err != nil {
+			t.Fatalf("refresh: %v", err)
+		}
+
+		assertOpenCode2Row(t, loadedPath, "acct-refresh", "native-refreshed", false)
+		assertOpenCode2Row(t, activePath, "acct-refresh", "native-old", false)
+	})
+}
+
 func TestOpenCode2ApplySwitchesActiveAndPreservesRowMetadata(t *testing.T) {
 	_, _ = setupOpenCode2TestEnv(t)
 	dbPath := filepath.Join(t.TempDir(), "native.db")

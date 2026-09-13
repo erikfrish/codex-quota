@@ -219,6 +219,28 @@ func detectOpenCodeCapabilitiesWithGenerations(v1, v2 bool) (openCodeCapabilitie
 	return capabilities, nil
 }
 
+func detectOpenCodeCapabilitiesAtPath(path string) (openCodeCapabilities, error) {
+	path = cleanPath(path)
+	if path == "" {
+		return openCodeCapabilities{}, fmt.Errorf("OpenCode store path is unknown")
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		return openCodeCapabilities{}, fmt.Errorf("failed to inspect OpenCode store: %w", err)
+	}
+	if !info.Mode().IsRegular() {
+		return openCodeCapabilities{}, fmt.Errorf("OpenCode store path is not a regular file")
+	}
+	if err := validateOpenCode2DatabaseReadOnly(path); err == nil {
+		return openCodeCapabilities{V2: true, v2Path: path}, nil
+	}
+	return openCodeCapabilities{
+		Legacy:              true,
+		legacyPaths:         []string{path},
+		legacyExistingPaths: []string{path},
+	}, nil
+}
+
 type openCode2Queryer interface {
 	QueryContext(context.Context, string, ...any) (*sql.Rows, error)
 	QueryRowContext(context.Context, string, ...any) *sql.Row
@@ -926,7 +948,14 @@ func applyOpenCodeComposite(account *Account, mode targetWriteMode) (string, err
 	if account.AccessToken == "" {
 		return "", fmt.Errorf("OpenCode OAuth access token is empty")
 	}
-	capabilities, err := detectOpenCodeCapabilities()
+	var capabilities openCodeCapabilities
+	var err error
+	// Refresh stays on the loaded store; apply resolves current configured stores.
+	if mode == targetWriteRefresh && strings.TrimSpace(account.FilePath) != "" {
+		capabilities, err = detectOpenCodeCapabilitiesAtPath(account.FilePath)
+	} else {
+		capabilities, err = detectOpenCodeCapabilities()
+	}
 	if err != nil {
 		return "", err
 	}
