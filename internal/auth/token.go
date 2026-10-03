@@ -162,6 +162,7 @@ func copyResolvedAccount(target, source *config.Account) {
 	target.IDToken = source.IDToken
 	target.ExpiresAt = source.ExpiresAt
 	target.ClientID = source.ClientID
+	target.OpenCode = config.CloneOpenCodeCredential(source.OpenCode)
 	target.Source = source.Source
 	target.FilePath = source.FilePath
 	target.Writable = source.Writable

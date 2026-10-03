@@ -29,6 +29,36 @@ func StartAddAccountLoginCmd() tea.Cmd {
 	}
 }
 
+func StartOpenCodeChatGPTLoginCmd(clientID, hostID string) tea.Cmd {
+	return func() tea.Msg {
+		status, err := auth.StartOpenCodeChatGPTLogin(clientID, hostID)
+		if err != nil {
+			return ErrMsg{Err: fmt.Errorf("OpenCode ChatGPT login failed: %w", err)}
+		}
+		return OpenCodeLoginStartedMsg{
+			AuthURL:           status.AuthURL,
+			BrowserOpenFailed: status.BrowserOpenFailed,
+		}
+	}
+}
+
+func PollOpenCodeChatGPTLoginCmd() tea.Cmd {
+	return tea.Tick(300*time.Millisecond, func(_ time.Time) tea.Msg {
+		account, done, err := auth.PollOpenCodeChatGPTLogin()
+		if !done {
+			return OpenCodeLoginPendingMsg{}
+		}
+		return OpenCodeLoginFinishedMsg{Account: account, Err: err}
+	})
+}
+
+func CancelOpenCodeChatGPTLoginCmd() tea.Cmd {
+	return func() tea.Msg {
+		_ = auth.CancelOpenCodeChatGPTLogin()
+		return nil
+	}
+}
+
 func PollAddAccountLoginCmd() tea.Cmd {
 	return tea.Tick(300*time.Millisecond, func(_ time.Time) tea.Msg {
 		account, done, err := auth.PollOpenAICodexLogin()
@@ -124,6 +154,47 @@ func FinalizeAddAccountLoginCmd(account *config.Account) tea.Cmd {
 			SourcesByAccountID:      result.SourcesByAccountID,
 			ActiveSourcesByIdentity: result.ActiveSourcesByIdentity,
 			Notice:                  note,
+		}
+	}
+}
+
+func FinalizeOpenCodeLoginCmd(account *config.Account, loginResult *config.Account) tea.Cmd {
+	accountSnapshot := cloneAccount(account)
+	if accountSnapshot == nil || loginResult == nil || loginResult.OpenCode == nil {
+		return nil
+	}
+	loginAccountID := strings.TrimSpace(loginResult.AccountID)
+	targetAccountID := strings.TrimSpace(accountSnapshot.AccountID)
+	if loginAccountID != "" && targetAccountID != "" && loginAccountID != targetAccountID {
+		return func() tea.Msg {
+			return ErrMsg{Err: fmt.Errorf("OpenCode login account does not match the selected CQ account")}
+		}
+	}
+	loginEmail := strings.ToLower(strings.TrimSpace(loginResult.Email))
+	targetEmail := strings.ToLower(strings.TrimSpace(accountSnapshot.Email))
+	if loginEmail != "" && targetEmail != "" && loginEmail != targetEmail {
+		return func() tea.Msg {
+			return ErrMsg{Err: fmt.Errorf("OpenCode login email does not match the selected CQ account")}
+		}
+	}
+	accountSnapshot.OpenCode = config.CloneOpenCodeCredential(loginResult.OpenCode)
+	return func() tea.Msg {
+		if err := config.UpsertManagedAccount(accountSnapshot); err != nil {
+			return ErrMsg{Err: fmt.Errorf("failed to save OpenCode credential: %w", err)}
+		}
+		if _, err := config.ApplyAccountToOpenCode(accountSnapshot); err != nil {
+			return ErrMsg{Err: fmt.Errorf("failed to apply OpenCode credential: %w", err)}
+		}
+		result, err := config.LoadAllAccountsWithSources()
+		if err != nil {
+			return ErrMsg{Err: fmt.Errorf("failed to reload accounts: %w", err)}
+		}
+		return AccountsMsg{
+			ActiveKey:               accountSnapshot.Key,
+			Accounts:                result.Accounts,
+			SourcesByAccountID:      result.SourcesByAccountID,
+			ActiveSourcesByIdentity: result.ActiveSourcesByIdentity,
+			Notice:                  "full OpenCode model access connected; restart OpenCode to reload models",
 		}
 	}
 }
@@ -438,6 +509,7 @@ func cloneAccount(account *config.Account) *config.Account {
 	}
 
 	cloned := *account
+	cloned.OpenCode = config.CloneOpenCodeCredential(account.OpenCode)
 	return &cloned
 }
 
@@ -469,6 +541,7 @@ func (m *Model) applyAccountSnapshot(accountKey string, snapshot *config.Account
 		account.AccessToken = snapshot.AccessToken
 		account.RefreshToken = snapshot.RefreshToken
 		account.ExpiresAt = snapshot.ExpiresAt
+		account.OpenCode = config.CloneOpenCodeCredential(snapshot.OpenCode)
 		if snapshot.ClientID != "" {
 			account.ClientID = snapshot.ClientID
 		}

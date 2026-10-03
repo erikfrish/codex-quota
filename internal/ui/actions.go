@@ -11,6 +11,11 @@ import (
 	"github.com/deLiseLINO/codex-quota/internal/update"
 )
 
+const (
+	loginFlowAddAccount = "add_account"
+	loginFlowOpenCode   = "opencode"
+)
+
 func (m Model) confirmActionMenu() (tea.Model, tea.Cmd) {
 	items := m.actionMenuItems()
 	if len(items) == 0 {
@@ -27,6 +32,8 @@ func (m Model) confirmActionMenu() (tea.Model, tea.Cmd) {
 	switch selected.ID {
 	case actionMenuApply:
 		return m.beginApplyFlow()
+	case actionMenuConnectOpenCode:
+		return m.beginOpenCodeConnect()
 	case actionMenuRefresh:
 		return m.beginRefreshActive()
 	case actionMenuRefreshAll:
@@ -220,6 +227,8 @@ func (m Model) beginAddAccount() (tea.Model, tea.Cmd) {
 	}
 	m.Loading = false
 	m.Err = nil
+	m.loginFlow = loginFlowAddAccount
+	m.pendingOpenCodeAccount = nil
 	m.resetHelpState()
 	m.resetActionMenuState()
 	m.resetDeleteState()
@@ -227,6 +236,33 @@ func (m Model) beginAddAccount() (tea.Model, tea.Cmd) {
 	m.ShowInfo = false
 	m.Notice = ""
 	return m, StartAddAccountLoginCmd()
+}
+
+func (m Model) beginOpenCodeConnect() (tea.Model, tea.Cmd) {
+	account := m.activeAccount()
+	if account == nil || m.AddAccountLoginVisible {
+		return m, nil
+	}
+	m.Loading = false
+	m.Err = nil
+	m.loginFlow = loginFlowOpenCode
+	m.pendingOpenCodeAccount = cloneAccount(account)
+	m.resetHelpState()
+	m.resetActionMenuState()
+	m.resetDeleteState()
+	m.resetApplyState()
+	m.ShowInfo = false
+	m.Notice = ""
+	clientID := ""
+	hostID := ""
+	if account.OpenCode != nil {
+		clientID = strings.TrimSpace(account.OpenCode.ClientID)
+		if account.OpenCode.Metadata != nil {
+			hostID, _ = account.OpenCode.Metadata["hostID"].(string)
+			hostID = strings.TrimSpace(hostID)
+		}
+	}
+	return m, StartOpenCodeChatGPTLoginCmd(clientID, hostID)
 }
 
 func (m Model) beginApplyFlow() (tea.Model, tea.Cmd) {

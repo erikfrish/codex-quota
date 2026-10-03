@@ -70,6 +70,11 @@ func mergeAccounts(left, right *Account) *Account {
 	if merged.IDToken == "" {
 		merged.IDToken = secondary.IDToken
 	}
+	if merged.OpenCode == nil {
+		merged.OpenCode = mergeOpenCodeCredentials(nil, secondary.OpenCode)
+	} else if secondary.OpenCode != nil {
+		merged.OpenCode = mergeOpenCodeCredentials(merged.OpenCode, secondary.OpenCode)
+	}
 	merged.AccessToken, merged.ExpiresAt = chooseTokenState(primary, secondary)
 	if !merged.Writable && secondary.Writable {
 		merged.Writable = true

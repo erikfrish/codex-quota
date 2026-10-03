@@ -18,15 +18,67 @@ type managedStore struct {
 	Accounts []managedAccount `json:"accounts"`
 }
 
+type managedOpenCodeCredential struct {
+	MethodID     string         `json:"method_id,omitempty"`
+	AccessToken  string         `json:"access_token,omitempty"`
+	RefreshToken string         `json:"refresh_token,omitempty"`
+	ExpiresAt    int64          `json:"expires_at_ms,omitempty"`
+	ClientID     string         `json:"client_id,omitempty"`
+	Metadata     map[string]any `json:"metadata,omitempty"`
+}
+
 type managedAccount struct {
-	Label        string `json:"label,omitempty"`
-	Email        string `json:"email,omitempty"`
-	AccountID    string `json:"account_id"`
-	AccessToken  string `json:"access_token"`
-	RefreshToken string `json:"refresh_token"`
-	IDToken      string `json:"id_token,omitempty"`
-	ExpiresAt    int64  `json:"expires_at_ms,omitempty"`
-	ClientID     string `json:"client_id,omitempty"`
+	Label        string                     `json:"label,omitempty"`
+	Email        string                     `json:"email,omitempty"`
+	AccountID    string                     `json:"account_id"`
+	AccessToken  string                     `json:"access_token"`
+	RefreshToken string                     `json:"refresh_token"`
+	IDToken      string                     `json:"id_token,omitempty"`
+	ExpiresAt    int64                      `json:"expires_at_ms,omitempty"`
+	ClientID     string                     `json:"client_id,omitempty"`
+	OpenCode     *managedOpenCodeCredential `json:"opencode,omitempty"`
+}
+
+func openCodeCredentialFromManaged(item *managedOpenCodeCredential) *OpenCodeCredential {
+	if item == nil {
+		return nil
+	}
+	credential := &OpenCodeCredential{
+		MethodID:     strings.TrimSpace(item.MethodID),
+		AccessToken:  strings.TrimSpace(item.AccessToken),
+		RefreshToken: strings.TrimSpace(item.RefreshToken),
+		ClientID:     strings.TrimSpace(item.ClientID),
+	}
+	if item.ExpiresAt > 0 {
+		credential.ExpiresAt = time.UnixMilli(item.ExpiresAt)
+	}
+	if item.Metadata != nil {
+		if cloned, err := cloneJSONMap(item.Metadata); err == nil {
+			credential.Metadata = cloned
+		}
+	}
+	return credential
+}
+
+func managedOpenCodeCredentialFromAccount(credential *OpenCodeCredential) *managedOpenCodeCredential {
+	if credential == nil {
+		return nil
+	}
+	item := &managedOpenCodeCredential{
+		MethodID:     strings.TrimSpace(credential.MethodID),
+		AccessToken:  strings.TrimSpace(credential.AccessToken),
+		RefreshToken: strings.TrimSpace(credential.RefreshToken),
+		ClientID:     strings.TrimSpace(credential.ClientID),
+	}
+	if !credential.ExpiresAt.IsZero() {
+		item.ExpiresAt = credential.ExpiresAt.UnixMilli()
+	}
+	if credential.Metadata != nil {
+		if cloned, err := cloneJSONMap(credential.Metadata); err == nil {
+			item.Metadata = cloned
+		}
+	}
+	return item
 }
 
 func LoadManagedAccounts() ([]*Account, error) {
@@ -70,6 +122,7 @@ func LoadManagedAccounts() ([]*Account, error) {
 			RefreshToken: strings.TrimSpace(item.RefreshToken),
 			IDToken:      strings.TrimSpace(item.IDToken),
 			ClientID:     strings.TrimSpace(item.ClientID),
+			OpenCode:     openCodeCredentialFromManaged(item.OpenCode),
 			Source:       SourceManaged,
 			FilePath:     path,
 			Writable:     true,
@@ -148,6 +201,7 @@ func UpsertManagedAccount(account *Account) error {
 		RefreshToken: strings.TrimSpace(account.RefreshToken),
 		IDToken:      strings.TrimSpace(account.IDToken),
 		ClientID:     strings.TrimSpace(account.ClientID),
+		OpenCode:     managedOpenCodeCredentialFromAccount(account.OpenCode),
 	}
 	if !account.ExpiresAt.IsZero() {
 		item.ExpiresAt = account.ExpiresAt.UnixMilli()
@@ -172,9 +226,52 @@ func UpsertManagedAccount(account *Account) error {
 	return nil
 }
 
+func mergeManagedOpenCodeCredential(existing, incoming *managedOpenCodeCredential) *managedOpenCodeCredential {
+	if existing == nil {
+		return incoming
+	}
+	if incoming == nil {
+		return existing
+	}
+	merged := *existing
+	if strings.TrimSpace(merged.MethodID) == "" {
+		merged.MethodID = incoming.MethodID
+	}
+	if strings.TrimSpace(merged.RefreshToken) == "" {
+		merged.RefreshToken = incoming.RefreshToken
+	}
+	if strings.TrimSpace(merged.ClientID) == "" {
+		merged.ClientID = incoming.ClientID
+	}
+	if merged.Metadata == nil {
+		merged.Metadata = incoming.Metadata
+	}
+	if incoming.ExpiresAt > 0 && (merged.ExpiresAt == 0 || incoming.ExpiresAt > merged.ExpiresAt) {
+		merged.AccessToken = incoming.AccessToken
+		merged.ExpiresAt = incoming.ExpiresAt
+		if strings.TrimSpace(incoming.RefreshToken) != "" {
+			merged.RefreshToken = incoming.RefreshToken
+		}
+		if strings.TrimSpace(incoming.ClientID) != "" {
+			merged.ClientID = incoming.ClientID
+		}
+		if incoming.Metadata != nil {
+			merged.Metadata = incoming.Metadata
+		}
+	}
+	if strings.TrimSpace(merged.AccessToken) == "" {
+		merged.AccessToken = incoming.AccessToken
+	}
+	if merged.ExpiresAt == 0 {
+		merged.ExpiresAt = incoming.ExpiresAt
+	}
+	return &merged
+}
+
 func mergeManagedAccount(existing, incoming managedAccount) managedAccount {
 	merged := existing
 	existingExpiresAt := merged.ExpiresAt
+	merged.OpenCode = mergeManagedOpenCodeCredential(existing.OpenCode, incoming.OpenCode)
 
 	if strings.TrimSpace(merged.Label) == "" {
 		merged.Label = incoming.Label

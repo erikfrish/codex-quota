@@ -97,19 +97,25 @@ func (m Model) handleHelpOverlay(keyStr string) (tea.Model, tea.Cmd) {
 }
 
 func (m Model) handleAddAccountLogin(keyStr string) (tea.Model, tea.Cmd) {
+	cancel := CancelAddAccountLoginCmd
+	if m.loginFlow == loginFlowOpenCode {
+		cancel = CancelOpenCodeChatGPTLoginCmd
+	}
 	switch keyStr {
 	case "q", "ctrl+c":
 		m.AddAccountLoginVisible = false
 		m.AddAccountLoginURL = ""
 		m.AddAccountBrowserFailed = false
 		m.AddAccountLoginStatus = ""
-		return m, tea.Batch(CancelAddAccountLoginCmd(), tea.Quit)
+		m.pendingOpenCodeAccount = nil
+		return m, tea.Batch(cancel(), tea.Quit)
 	case "esc":
 		m.AddAccountLoginVisible = false
 		m.AddAccountLoginURL = ""
 		m.AddAccountBrowserFailed = false
 		m.AddAccountLoginStatus = ""
-		return m, CancelAddAccountLoginCmd()
+		m.pendingOpenCodeAccount = nil
+		return m, cancel()
 	case "c":
 		if strings.TrimSpace(m.AddAccountLoginURL) == "" {
 			return m, nil

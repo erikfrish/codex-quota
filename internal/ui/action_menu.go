@@ -14,6 +14,7 @@ const (
 	actionMenuRefreshAll           = "refresh_all"
 	actionMenuInfo                 = "info"
 	actionMenuAdd                  = "add"
+	actionMenuConnectOpenCode      = "connect_opencode"
 	actionMenuView                 = "view"
 	actionMenuDelete               = "delete"
 	actionMenuUpdate               = "update"
@@ -47,6 +48,7 @@ func (m Model) actionMenuSections() []actionMenuSection {
 			Title: "Global actions",
 			Items: []actionMenuItem{
 				{ID: actionMenuRefreshAll, Label: "Refresh all", Shortcut: "R"},
+				{ID: actionMenuConnectOpenCode, Label: "Connect full OpenCode model access"},
 				{ID: actionMenuAdd, Label: "Add account", Shortcut: "n"},
 				{ID: actionMenuView, Label: "Switch view", Shortcut: "v"},
 				{ID: actionMenuRestoreOMPPool, Label: "Restore all accounts to OMP pool", Shortcut: "p"},

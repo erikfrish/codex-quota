@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 	"sort"
 	"strings"
 	"time"
@@ -248,6 +249,7 @@ func cloneAsManaged(account *Account) *Account {
 		IDToken:      strings.TrimSpace(account.IDToken),
 		ExpiresAt:    account.ExpiresAt,
 		ClientID:     strings.TrimSpace(account.ClientID),
+		OpenCode:     cloneOpenCodeCredential(account.OpenCode),
 		Source:       SourceManaged,
 		Writable:     true,
 	}
@@ -285,6 +287,9 @@ func needsManagedUpdate(existing *Account, incoming *Account) bool {
 		return true
 	}
 	if !existing.ExpiresAt.Equal(merged.ExpiresAt) {
+		return true
+	}
+	if !reflect.DeepEqual(existing.OpenCode, merged.OpenCode) {
 		return true
 	}
 

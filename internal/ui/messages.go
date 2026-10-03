@@ -49,6 +49,18 @@ type AddAccountLoginFinishedMsg struct {
 	Err     error
 }
 
+type OpenCodeLoginStartedMsg struct {
+	AuthURL           string
+	BrowserOpenFailed bool
+}
+
+type OpenCodeLoginPendingMsg struct{}
+
+type OpenCodeLoginFinishedMsg struct {
+	Account *config.Account
+	Err     error
+}
+
 type AddAccountLoginCopyResultMsg struct {
 	Text string
 	Err  error

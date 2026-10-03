@@ -22,7 +22,7 @@ import (
 
 const (
 	openCode2Integration  = "openai"
-	openCode2OAuthMethod  = "chatgpt-browser"
+	openCode2OAuthMethod  = OpenCodeChatGPTBrowserMethod
 	openCode2BusyTimeout  = 5000
 	openCode2ProbeTimeout = 2 * time.Second
 	openCode2DBTimeout    = 10 * time.Second
@@ -552,6 +552,7 @@ func normalizeOpenCode2Account(account *Account) *Account {
 		return nil
 	}
 	clone := *account
+	clone.OpenCode = cloneOpenCodeCredential(account.OpenCode)
 	clone.AccessToken = strings.TrimSpace(clone.AccessToken)
 	clone.RefreshToken = strings.TrimSpace(clone.RefreshToken)
 	clone.AccountID = strings.TrimSpace(clone.AccountID)
@@ -567,35 +568,92 @@ func normalizeOpenCode2Account(account *Account) *Account {
 	if clone.ExpiresAt.IsZero() {
 		clone.ExpiresAt = claims.ExpiresAt
 	}
+	if clone.OpenCode != nil {
+		clone.OpenCode.MethodID = strings.TrimSpace(clone.OpenCode.MethodID)
+		clone.OpenCode.AccessToken = strings.TrimSpace(clone.OpenCode.AccessToken)
+		clone.OpenCode.RefreshToken = strings.TrimSpace(clone.OpenCode.RefreshToken)
+		clone.OpenCode.ClientID = strings.TrimSpace(clone.OpenCode.ClientID)
+		if clone.OpenCode.ExpiresAt.IsZero() {
+			clone.OpenCode.ExpiresAt = clone.ExpiresAt
+		}
+	}
 	return &clone
+}
+
+func openCode2CredentialForAccount(account *Account) *OpenCodeCredential {
+	if account == nil {
+		return nil
+	}
+	if account.OpenCode != nil &&
+		account.OpenCode.MethodID != OpenCodeChatGPTBrowserMethod &&
+		account.OpenCode.MethodID != OpenCodeChatGPTHeadlessMethod {
+		credential := cloneOpenCodeCredential(account.OpenCode)
+		if credential.MethodID == "" {
+			credential.MethodID = openCode2OAuthMethod
+		}
+		return credential
+	}
+	methodID := openCode2OAuthMethod
+	var metadata map[string]any
+	if account.OpenCode != nil {
+		methodID = account.OpenCode.MethodID
+		metadata = cloneOpenCodeCredential(account.OpenCode).Metadata
+	}
+	if methodID == "" {
+		methodID = openCode2OAuthMethod
+	}
+	return &OpenCodeCredential{
+		MethodID:     methodID,
+		AccessToken:  account.AccessToken,
+		RefreshToken: account.RefreshToken,
+		ExpiresAt:    account.ExpiresAt,
+		ClientID:     account.ClientID,
+		Metadata:     metadata,
+	}
 }
 
 func buildOpenCode2OAuthValue(account *Account, existing map[string]any) (map[string]any, error) {
 	account = normalizeOpenCode2Account(account)
-	if account == nil || account.AccessToken == "" {
+	credential := openCode2CredentialForAccount(account)
+	if credential == nil || credential.AccessToken == "" {
 		return nil, fmt.Errorf("OpenCode v2 OAuth access token is empty")
 	}
 	value, err := cloneJSONMap(existing)
 	if err != nil {
 		return nil, fmt.Errorf("failed to preserve OpenCode v2 credential value")
 	}
+	methodID := strings.TrimSpace(credential.MethodID)
+	if methodID == "" {
+		methodID = openCode2OAuthMethod
+	}
 	value["type"] = "oauth"
-	value["methodID"] = openCode2OAuthMethod
-	value["access"] = account.AccessToken
-	value["refresh"] = account.RefreshToken
+	value["methodID"] = methodID
+	value["access"] = credential.AccessToken
+	value["refresh"] = credential.RefreshToken
 	expires := int64(0)
-	if !account.ExpiresAt.IsZero() {
-		expires = account.ExpiresAt.UnixMilli()
+	if !credential.ExpiresAt.IsZero() {
+		expires = credential.ExpiresAt.UnixMilli()
 	}
 	value["expires"] = expires
-	metadata := asMap(value["metadata"])
-	if metadata == nil {
-		metadata = map[string]any{}
+	metadata := map[string]any{}
+	if account.OpenCode == nil {
+		if existingMetadata := asMap(value["metadata"]); existingMetadata != nil {
+			metadata, err = cloneJSONMap(existingMetadata)
+			if err != nil {
+				return nil, fmt.Errorf("failed to preserve OpenCode v2 credential metadata")
+			}
+		}
+	} else if credential.Metadata != nil {
+		metadata, err = cloneJSONMap(credential.Metadata)
+		if err != nil {
+			return nil, fmt.Errorf("failed to preserve OpenCode v2 credential metadata")
+		}
 	}
 	if account.AccountID != "" {
 		metadata["accountID"] = account.AccountID
-	} else {
-		delete(metadata, "accountID")
+	}
+	if credential.ClientID != "" {
+		metadata["clientID"] = credential.ClientID
 	}
 	value["metadata"] = metadata
 	return value, nil
@@ -685,7 +743,8 @@ func findOpenCode2Credential(ctx context.Context, queryer openCode2Queryer, acco
 
 func upsertOpenCode2Credential(ctx context.Context, executor openCode2Executor, account *Account, activate, allowInsert bool) (string, bool, bool, error) {
 	account = normalizeOpenCode2Account(account)
-	if account == nil || account.AccessToken == "" {
+	credential := openCode2CredentialForAccount(account)
+	if credential == nil || credential.AccessToken == "" {
 		return "", false, false, fmt.Errorf("OpenCode v2 OAuth access token is empty")
 	}
 	row, existing, err := findOpenCode2Credential(ctx, executor, account)
@@ -747,19 +806,57 @@ func upsertOpenCode2Credential(ctx context.Context, executor openCode2Executor, 
 
 func openCode2AccountFromRow(row openCode2CredentialRow, path string) (*Account, bool) {
 	var value map[string]any
-	if json.Unmarshal([]byte(row.Value), &value) != nil || asString(value["type"]) != "oauth" || asString(value["methodID"]) != openCode2OAuthMethod {
+	if json.Unmarshal([]byte(row.Value), &value) != nil || asString(value["type"]) != "oauth" {
+		return nil, false
+	}
+	methodID := strings.TrimSpace(asString(value["methodID"]))
+	if methodID != OpenCodeChatGPTBrowserMethod &&
+		methodID != OpenCodeChatGPTHeadlessMethod &&
+		methodID != OpenCodeChatGPTTokenSharingMethod {
 		return nil, false
 	}
 	access := strings.TrimSpace(asString(value["access"]))
 	if access == "" {
 		return nil, false
 	}
-	accountID, email := openCode2ValueIdentity(value, row.Label)
-	account := &Account{Label: strings.TrimSpace(row.Label), AccessToken: access, RefreshToken: strings.TrimSpace(asString(value["refresh"])), AccountID: accountID, Email: email, Source: SourceOpenCode, FilePath: path, Writable: true}
+	metadata := asMap(value["metadata"])
+	credential := &OpenCodeCredential{
+		MethodID:     methodID,
+		AccessToken:  access,
+		RefreshToken: strings.TrimSpace(asString(value["refresh"])),
+		Metadata:     metadata,
+	}
+	if clientID := strings.TrimSpace(asString(metadata["clientID"])); clientID != "" {
+		credential.ClientID = clientID
+	}
 	if expires, ok := asInt64(value["expires"]); ok && expires > 0 {
-		account.ExpiresAt = time.UnixMilli(expires)
+		credential.ExpiresAt = time.UnixMilli(expires)
 	} else if claims := ParseAccessToken(access); !claims.ExpiresAt.IsZero() {
-		account.ExpiresAt = claims.ExpiresAt
+		credential.ExpiresAt = claims.ExpiresAt
+	}
+	accountID, email := openCode2ValueIdentity(value, row.Label)
+	if accountID == "" && email == "" {
+		return nil, false
+	}
+	account := &Account{
+		Label:     strings.TrimSpace(row.Label),
+		AccountID: accountID,
+		Email:     email,
+		OpenCode:  credential,
+		Source:    SourceOpenCode,
+		FilePath:  path,
+		Writable:  true,
+	}
+	if methodID == OpenCodeChatGPTBrowserMethod || methodID == OpenCodeChatGPTHeadlessMethod {
+		account.AccessToken = access
+		account.RefreshToken = credential.RefreshToken
+		account.ExpiresAt = credential.ExpiresAt
+		account.ClientID = credential.ClientID
+	} else {
+		account.AccountID = CanonicalAccountID(account.AccountID, ParseAccessToken(access).AccountID)
+		if account.Email == "" {
+			account.Email = ParseAccessToken(access).Email
+		}
 	}
 	return account, row.Active.Valid && row.Active.Int64 == 1
 }

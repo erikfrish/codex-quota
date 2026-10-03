@@ -318,8 +318,12 @@ type addAccountLoginModalLayout struct {
 }
 
 func (m Model) addAccountLoginModalLayout() addAccountLoginModalLayout {
+	title := "Connect ChatGPT account"
+	if m.loginFlow == loginFlowOpenCode {
+		title = "Connect full OpenCode model access"
+	}
 	lines := []string{
-		InfoTitleStyle.Render("Connect ChatGPT account"),
+		InfoTitleStyle.Render(title),
 		"",
 		InfoValueStyle.Render("Complete authorization in your browser. This window will close automatically after login."),
 		"",

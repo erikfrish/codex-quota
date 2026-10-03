@@ -2,6 +2,7 @@ package config
 
 import (
 	"fmt"
+	"strings"
 	"time"
 )
 
@@ -13,7 +14,20 @@ const (
 	SourceCodex    Source = "codex"
 	SourcePi       Source = "pi"
 	SourceOMP      Source = "omp"
+
+	OpenCodeChatGPTBrowserMethod      = "chatgpt-browser"
+	OpenCodeChatGPTHeadlessMethod     = "chatgpt-headless"
+	OpenCodeChatGPTTokenSharingMethod = "chatgpt-token-sharing"
 )
+
+type OpenCodeCredential struct {
+	MethodID     string
+	AccessToken  string
+	RefreshToken string
+	ExpiresAt    time.Time
+	ClientID     string
+	Metadata     map[string]any
+}
 
 type Account struct {
 	Key          string
@@ -25,9 +39,27 @@ type Account struct {
 	IDToken      string
 	ExpiresAt    time.Time
 	ClientID     string
+	OpenCode     *OpenCodeCredential
 	Source       Source
 	FilePath     string
 	Writable     bool
+}
+
+func CloneOpenCodeCredential(credential *OpenCodeCredential) *OpenCodeCredential {
+	if credential == nil {
+		return nil
+	}
+	cloned := *credential
+	if credential.Metadata != nil {
+		if metadata, err := cloneJSONMap(credential.Metadata); err == nil {
+			cloned.Metadata = metadata
+		}
+	}
+	return &cloned
+}
+
+func cloneOpenCodeCredential(credential *OpenCodeCredential) *OpenCodeCredential {
+	return CloneOpenCodeCredential(credential)
 }
 
 type AccessTokenClaims struct {
@@ -35,6 +67,45 @@ type AccessTokenClaims struct {
 	AccountID string
 	ExpiresAt time.Time
 	Email     string
+}
+
+func mergeOpenCodeCredentials(primary, secondary *OpenCodeCredential) *OpenCodeCredential {
+	if primary == nil {
+		return cloneOpenCodeCredential(secondary)
+	}
+	if secondary == nil {
+		return cloneOpenCodeCredential(primary)
+	}
+	best := primary
+	if !secondary.ExpiresAt.IsZero() && (primary.ExpiresAt.IsZero() || secondary.ExpiresAt.After(primary.ExpiresAt)) {
+		best = secondary
+	}
+	merged := cloneOpenCodeCredential(best)
+	if strings.TrimSpace(merged.MethodID) == "" {
+		merged.MethodID = strings.TrimSpace(primary.MethodID)
+		if merged.MethodID == "" {
+			merged.MethodID = strings.TrimSpace(secondary.MethodID)
+		}
+	}
+	if strings.TrimSpace(merged.RefreshToken) == "" {
+		merged.RefreshToken = strings.TrimSpace(primary.RefreshToken)
+		if merged.RefreshToken == "" {
+			merged.RefreshToken = strings.TrimSpace(secondary.RefreshToken)
+		}
+	}
+	if strings.TrimSpace(merged.ClientID) == "" {
+		merged.ClientID = strings.TrimSpace(primary.ClientID)
+		if merged.ClientID == "" {
+			merged.ClientID = strings.TrimSpace(secondary.ClientID)
+		}
+	}
+	if merged.Metadata == nil {
+		merged.Metadata = cloneOpenCodeCredential(primary).Metadata
+		if merged.Metadata == nil {
+			merged.Metadata = cloneOpenCodeCredential(secondary).Metadata
+		}
+	}
+	return merged
 }
 
 type AccountsLoadResult struct {
