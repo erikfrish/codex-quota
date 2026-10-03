@@ -29,34 +29,17 @@ func StartAddAccountLoginCmd() tea.Cmd {
 	}
 }
 
-func StartOpenCodeChatGPTLoginCmd(clientID, hostID string) tea.Cmd {
-	return func() tea.Msg {
-		status, err := auth.StartOpenCodeChatGPTLogin(clientID, hostID)
-		if err != nil {
-			return ErrMsg{Err: fmt.Errorf("OpenCode ChatGPT login failed: %w", err)}
-		}
-		return OpenCodeLoginStartedMsg{
-			AuthURL:           status.AuthURL,
-			BrowserOpenFailed: status.BrowserOpenFailed,
+func StartOpenCodeNativeLoginCmd() tea.Cmd {
+	path, err := exec.LookPath("opencode")
+	if err != nil {
+		return func() tea.Msg {
+			return ErrMsg{Err: fmt.Errorf("OpenCode executable not found: %w", err)}
 		}
 	}
-}
-
-func PollOpenCodeChatGPTLoginCmd() tea.Cmd {
-	return tea.Tick(300*time.Millisecond, func(_ time.Time) tea.Msg {
-		account, done, err := auth.PollOpenCodeChatGPTLogin()
-		if !done {
-			return OpenCodeLoginPendingMsg{}
-		}
-		return OpenCodeLoginFinishedMsg{Account: account, Err: err}
+	command := exec.Command(path, "auth", "login", "openai", "--method", config.OpenCodeChatGPTTokenSharingMethod)
+	return tea.ExecProcess(command, func(err error) tea.Msg {
+		return OpenCodeNativeLoginFinishedMsg{Err: err}
 	})
-}
-
-func CancelOpenCodeChatGPTLoginCmd() tea.Cmd {
-	return func() tea.Msg {
-		_ = auth.CancelOpenCodeChatGPTLogin()
-		return nil
-	}
 }
 
 func PollAddAccountLoginCmd() tea.Cmd {
@@ -158,20 +141,22 @@ func FinalizeAddAccountLoginCmd(account *config.Account) tea.Cmd {
 	}
 }
 
-func FinalizeOpenCodeLoginCmd(account *config.Account, loginResult *config.Account) tea.Cmd {
+func FinalizeOpenCodeNativeLoginCmd(account *config.Account) tea.Cmd {
 	accountSnapshot := cloneAccount(account)
-	if accountSnapshot == nil || loginResult == nil || loginResult.OpenCode == nil {
+	if accountSnapshot == nil {
 		return nil
 	}
-	// OpenCode token-sharing and CQ Codex tokens do not expose a stable shared account ID.
-	// The selected CQ account is the local association; OpenCode owns the OAuth identity.
-	accountSnapshot.OpenCode = config.CloneOpenCodeCredential(loginResult.OpenCode)
 	return func() tea.Msg {
+		credential, err := config.LoadLatestOpenCode2TokenSharingCredential()
+		if err != nil {
+			return ErrMsg{Err: fmt.Errorf("failed to import OpenCode credential: %w", err)}
+		}
+		accountSnapshot.OpenCode = config.CloneOpenCodeCredential(credential)
 		if err := config.UpsertManagedAccount(accountSnapshot); err != nil {
 			return ErrMsg{Err: fmt.Errorf("failed to save OpenCode credential: %w", err)}
 		}
 		if _, err := config.ApplyAccountToOpenCode(accountSnapshot); err != nil {
-			return ErrMsg{Err: fmt.Errorf("failed to apply OpenCode credential: %w", err)}
+			return ErrMsg{Err: fmt.Errorf("failed to associate OpenCode credential: %w", err)}
 		}
 		result, err := config.LoadAllAccountsWithSources()
 		if err != nil {

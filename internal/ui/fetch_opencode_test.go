@@ -2,16 +2,16 @@ package ui
 
 import (
 	"database/sql"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"testing"
-	"time"
 
 	"github.com/deLiseLINO/codex-quota/internal/config"
 	_ "modernc.org/sqlite"
 )
 
-func TestFinalizeOpenCodeLoginAllowsDifferentOAuthIdentity(t *testing.T) {
+func TestFinalizeOpenCodeNativeLoginImportsCredentialWithoutIdentityMatch(t *testing.T) {
 	root := t.TempDir()
 	t.Setenv("HOME", filepath.Join(root, "home"))
 	t.Setenv("CQ_CONFIG_HOME", filepath.Join(root, "cq"))
@@ -41,6 +41,21 @@ func TestFinalizeOpenCodeLoginAllowsDifferentOAuthIdentity(t *testing.T) {
 	)`); err != nil {
 		t.Fatal(err)
 	}
+	value, err := json.Marshal(map[string]any{
+		"type":     "oauth",
+		"methodID": config.OpenCodeChatGPTTokenSharingMethod,
+		"access":   "sharing-access",
+		"refresh":  "sharing-refresh",
+		"expires":  float64(1234),
+		"metadata": map[string]any{"clientID": "dynamic-client", "scopes": []any{"chatgpt.tokens.use.direct"}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`INSERT INTO credential (id, integration_id, label, value, active, time_created, time_updated)
+		VALUES (?, ?, ?, ?, ?, ?, ?)`, "native", "openai", "OAuth", string(value), 1, 10, 20); err != nil {
+		t.Fatal(err)
+	}
 
 	target := &config.Account{
 		Key:          "managed:codex-account",
@@ -51,24 +66,25 @@ func TestFinalizeOpenCodeLoginAllowsDifferentOAuthIdentity(t *testing.T) {
 		Source:       config.SourceManaged,
 		Writable:     true,
 	}
-	loginResult := &config.Account{
-		AccountID: "different-token-identity",
-		Email:     "different@example.com",
-		OpenCode: &config.OpenCodeCredential{
-			MethodID:     config.OpenCodeChatGPTTokenSharingMethod,
-			AccessToken:  "sharing-access",
-			RefreshToken: "sharing-refresh",
-			ClientID:     "dynamic-client",
-			ExpiresAt:    time.Now().Add(time.Hour),
-			Metadata:     map[string]any{"scopes": []any{"chatgpt.tokens.use.direct"}},
-		},
-	}
 
-	msg := FinalizeOpenCodeLoginCmd(target, loginResult)()
+	msg := FinalizeOpenCodeNativeLoginCmd(target)()
 	if errMsg, ok := msg.(ErrMsg); ok {
-		t.Fatalf("cross-flow identity mismatch rejected: %v", errMsg.Err)
+		t.Fatalf("native credential import failed: %v", errMsg.Err)
 	}
 	if _, ok := msg.(AccountsMsg); !ok {
 		t.Fatalf("finalization message = %T, want AccountsMsg", msg)
+	}
+
+	var stored string
+	if err := db.QueryRow(`SELECT value FROM credential WHERE id = ?`, "native").Scan(&stored); err != nil {
+		t.Fatal(err)
+	}
+	var storedValue map[string]any
+	if err := json.Unmarshal([]byte(stored), &storedValue); err != nil {
+		t.Fatal(err)
+	}
+	metadata, ok := storedValue["metadata"].(map[string]any)
+	if !ok || metadata["accountID"] != "codex-account" {
+		t.Fatalf("native credential metadata = %#v, want local account association", storedValue["metadata"])
 	}
 }

@@ -45,7 +45,6 @@ type Model struct {
 	AddAccountLoginURL        string
 	AddAccountBrowserFailed   bool
 	AddAccountLoginStatus     string
-	loginFlow                 string
 	pendingOpenCodeAccount    *config.Account
 	ShowInfo                  bool
 	Notice                    string
@@ -504,46 +503,21 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.Notice = ""
 		return m, nil
 
-	case OpenCodeLoginStartedMsg:
-		m.AddAccountLoginVisible = true
-		m.AddAccountLoginURL = strings.TrimSpace(msg.AuthURL)
-		m.AddAccountBrowserFailed = msg.BrowserOpenFailed
-		m.AddAccountLoginStatus = ""
-		m.Loading = false
-		m.Err = nil
-		m.Notice = ""
-		return m, PollOpenCodeChatGPTLoginCmd()
-
-	case OpenCodeLoginPendingMsg:
-		if !m.AddAccountLoginVisible || m.loginFlow != loginFlowOpenCode {
-			return m, nil
-		}
-		return m, PollOpenCodeChatGPTLoginCmd()
-
-	case OpenCodeLoginFinishedMsg:
-		if !m.AddAccountLoginVisible || m.loginFlow != loginFlowOpenCode {
-			return m, nil
-		}
+	case OpenCodeNativeLoginFinishedMsg:
 		pending := m.pendingOpenCodeAccount
-		m.AddAccountLoginVisible = false
-		m.AddAccountLoginURL = ""
-		m.AddAccountBrowserFailed = false
-		m.AddAccountLoginStatus = ""
 		m.pendingOpenCodeAccount = nil
-		m.loginFlow = ""
 		m.Loading = false
 		if msg.Err != nil {
-			m.Err = fmt.Errorf("OpenCode login failed: %w", msg.Err)
+			m.Err = fmt.Errorf("native OpenCode login failed: %w", msg.Err)
 			return m, nil
 		}
-		if msg.Account == nil || msg.Account.OpenCode == nil || pending == nil {
-			m.Err = fmt.Errorf("OpenCode login failed: empty credential result")
+		if pending == nil {
+			m.Err = fmt.Errorf("native OpenCode login failed: no selected CQ account")
 			return m, nil
 		}
-		return m, FinalizeOpenCodeLoginCmd(pending, msg.Account)
+		return m, FinalizeOpenCodeNativeLoginCmd(pending)
 
 	case AddAccountLoginStartedMsg:
-		m.loginFlow = loginFlowAddAccount
 		m.pendingOpenCodeAccount = nil
 		m.AddAccountLoginVisible = true
 		m.AddAccountLoginURL = strings.TrimSpace(msg.AuthURL)
@@ -561,14 +535,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, PollAddAccountLoginCmd()
 
 	case AddAccountLoginFinishedMsg:
-		if !m.AddAccountLoginVisible || m.loginFlow != loginFlowAddAccount {
+		if !m.AddAccountLoginVisible {
 			return m, nil
 		}
 		m.AddAccountLoginVisible = false
 		m.AddAccountLoginURL = ""
 		m.AddAccountBrowserFailed = false
 		m.AddAccountLoginStatus = ""
-		m.loginFlow = ""
 		m.pendingOpenCodeAccount = nil
 		m.Loading = false
 		if msg.Err != nil {

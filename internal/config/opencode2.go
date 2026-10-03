@@ -484,6 +484,68 @@ func queryOpenCode2CredentialRows(ctx context.Context, queryer openCode2Queryer)
 	}
 	return result, nil
 }
+func LoadLatestOpenCode2TokenSharingCredential() (*OpenCodeCredential, error) {
+	db, err := openOpenCode2Database(opencode2DBPath(), true)
+	if err != nil {
+		return nil, err
+	}
+	defer db.Close()
+
+	ctx, cancel := context.WithTimeout(context.Background(), openCode2DBTimeout)
+	defer cancel()
+	rows, err := queryOpenCode2CredentialRows(ctx, db)
+	if err != nil {
+		return nil, err
+	}
+
+	var latest *OpenCodeCredential
+	var latestUpdated int64
+	for _, row := range rows {
+		var value map[string]any
+		if json.Unmarshal([]byte(row.Value), &value) != nil ||
+			asString(value["type"]) != "oauth" ||
+			strings.TrimSpace(asString(value["methodID"])) != OpenCodeChatGPTTokenSharingMethod {
+			continue
+		}
+		access := strings.TrimSpace(asString(value["access"]))
+		if access == "" {
+			continue
+		}
+		metadata := asMap(value["metadata"])
+		credential := &OpenCodeCredential{
+			MethodID:     OpenCodeChatGPTTokenSharingMethod,
+			AccessToken:  access,
+			RefreshToken: strings.TrimSpace(asString(value["refresh"])),
+			Metadata:     metadata,
+			ClientID:     strings.TrimSpace(asString(metadata["clientID"])),
+		}
+		if expires, ok := asInt64(value["expires"]); ok && expires > 0 {
+			credential.ExpiresAt = time.UnixMilli(expires)
+		} else {
+			credential.ExpiresAt = ParseAccessToken(access).ExpiresAt
+		}
+		if latest == nil || row.TimeUpdated > latestUpdated {
+			latest = credential
+			latestUpdated = row.TimeUpdated
+		}
+	}
+	if latest == nil {
+		return nil, fmt.Errorf("OpenCode v2 token-sharing credential not found")
+	}
+	return latest, nil
+}
+
+func openCode2TokenSharingCredentialMatches(value map[string]any, account *Account) bool {
+	if account == nil || account.OpenCode == nil ||
+		strings.TrimSpace(asString(value["type"])) != "oauth" ||
+		strings.TrimSpace(asString(value["methodID"])) != OpenCodeChatGPTTokenSharingMethod {
+		return false
+	}
+	metadata := asMap(value["metadata"])
+	rowClientID := strings.TrimSpace(asString(metadata["clientID"]))
+	targetClientID := strings.TrimSpace(account.OpenCode.ClientID)
+	return rowClientID != "" && targetClientID != "" && rowClientID == targetClientID
+}
 
 func cloneJSONMap(input map[string]any) (map[string]any, error) {
 	if input == nil {
@@ -537,6 +599,9 @@ func plausibleOpenCodeEmail(value string) bool {
 func openCode2CredentialMatches(value map[string]any, label string, account *Account) bool {
 	if account == nil || strings.TrimSpace(asString(value["type"])) != "oauth" {
 		return false
+	}
+	if openCode2TokenSharingCredentialMatches(value, account) {
+		return true
 	}
 	rowID, rowEmail := openCode2ValueIdentity(value, label)
 	accountID := strings.TrimSpace(account.AccountID)

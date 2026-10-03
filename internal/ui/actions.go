@@ -11,11 +11,6 @@ import (
 	"github.com/deLiseLINO/codex-quota/internal/update"
 )
 
-const (
-	loginFlowAddAccount = "add_account"
-	loginFlowOpenCode   = "opencode"
-)
-
 func (m Model) confirmActionMenu() (tea.Model, tea.Cmd) {
 	items := m.actionMenuItems()
 	if len(items) == 0 {
@@ -227,7 +222,6 @@ func (m Model) beginAddAccount() (tea.Model, tea.Cmd) {
 	}
 	m.Loading = false
 	m.Err = nil
-	m.loginFlow = loginFlowAddAccount
 	m.pendingOpenCodeAccount = nil
 	m.resetHelpState()
 	m.resetActionMenuState()
@@ -245,24 +239,14 @@ func (m Model) beginOpenCodeConnect() (tea.Model, tea.Cmd) {
 	}
 	m.Loading = false
 	m.Err = nil
-	m.loginFlow = loginFlowOpenCode
 	m.pendingOpenCodeAccount = cloneAccount(account)
 	m.resetHelpState()
 	m.resetActionMenuState()
 	m.resetDeleteState()
 	m.resetApplyState()
 	m.ShowInfo = false
-	m.Notice = ""
-	clientID := ""
-	hostID := ""
-	if account.OpenCode != nil {
-		clientID = strings.TrimSpace(account.OpenCode.ClientID)
-		if account.OpenCode.Metadata != nil {
-			hostID, _ = account.OpenCode.Metadata["hostID"].(string)
-			hostID = strings.TrimSpace(hostID)
-		}
-	}
-	return m, StartOpenCodeChatGPTLoginCmd(clientID, hostID)
+	m.Notice = "Starting native OpenCode login..."
+	return m, StartOpenCodeNativeLoginCmd()
 }
 
 func (m Model) beginApplyFlow() (tea.Model, tea.Cmd) {

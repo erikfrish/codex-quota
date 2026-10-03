@@ -57,6 +57,11 @@ Typical flow:
 4. Press `o` to apply the active account to selected targets.
 5. Use `r`/`R` to refresh quota and `?` for grouped keyboard help.
 
+
+### OpenCode authentication
+
+Use `Enter` → `Connect full OpenCode model access` for the active CQ account. CQ delegates OAuth to the installed OpenCode CLI (`opencode auth login openai --method chatgpt-token-sharing`), then imports the credential from OpenCode's native database and records only the local CQ-account association. CQ does not register its own OAuth client or run a second OpenCode authorization flow.
+
 ## Controls
 
 - `↑` `↓` `←` `→` — both work for navigation; the UI highlights `↑/↓` in compact view and `←/→` in tabs view

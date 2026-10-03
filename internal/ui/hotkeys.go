@@ -98,9 +98,6 @@ func (m Model) handleHelpOverlay(keyStr string) (tea.Model, tea.Cmd) {
 
 func (m Model) handleAddAccountLogin(keyStr string) (tea.Model, tea.Cmd) {
 	cancel := CancelAddAccountLoginCmd
-	if m.loginFlow == loginFlowOpenCode {
-		cancel = CancelOpenCodeChatGPTLoginCmd
-	}
 	switch keyStr {
 	case "q", "ctrl+c":
 		m.AddAccountLoginVisible = false

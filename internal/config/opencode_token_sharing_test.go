@@ -75,6 +75,40 @@ func TestOpenCode2AccountFromTokenSharingRowPreservesCredential(t *testing.T) {
 		t.Fatalf("account ID = %q", account.AccountID)
 	}
 }
+func TestLoadLatestOpenCode2TokenSharingCredential(t *testing.T) {
+	dbPath := t.TempDir() + "/opencode.db"
+	db := createOpenCode2TestDB(t, dbPath)
+	t.Setenv("OPENCODE_DB", dbPath)
+
+	value := map[string]any{
+		"type":     "oauth",
+		"methodID": OpenCodeChatGPTTokenSharingMethod,
+		"access":   "native-access",
+		"refresh":  "native-refresh",
+		"expires":  float64(1234),
+		"metadata": map[string]any{"clientID": "native-client", "scopes": []any{"chatgpt.tokens.use.direct"}},
+	}
+	encoded, err := json.Marshal(value)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`INSERT INTO credential (id, integration_id, label, value, active, time_created, time_updated) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+		"native", openCode2Integration, "OAuth", string(encoded), 1, 10, 20); err != nil {
+		t.Fatal(err)
+	}
+
+	credential, err := LoadLatestOpenCode2TokenSharingCredential()
+	if err != nil {
+		t.Fatalf("load latest token-sharing credential: %v", err)
+	}
+	if credential.MethodID != OpenCodeChatGPTTokenSharingMethod ||
+		credential.AccessToken != "native-access" ||
+		credential.RefreshToken != "native-refresh" ||
+		credential.ClientID != "native-client" ||
+		!credential.ExpiresAt.Equal(time.UnixMilli(1234)) {
+		t.Fatalf("credential = %#v", credential)
+	}
+}
 
 func TestManagedAccountPersistsOpenCodeCredential(t *testing.T) {
 	t.Setenv("CQ_CONFIG_HOME", t.TempDir())
