@@ -163,20 +163,8 @@ func FinalizeOpenCodeLoginCmd(account *config.Account, loginResult *config.Accou
 	if accountSnapshot == nil || loginResult == nil || loginResult.OpenCode == nil {
 		return nil
 	}
-	loginAccountID := strings.TrimSpace(loginResult.AccountID)
-	targetAccountID := strings.TrimSpace(accountSnapshot.AccountID)
-	if loginAccountID != "" && targetAccountID != "" && loginAccountID != targetAccountID {
-		return func() tea.Msg {
-			return ErrMsg{Err: fmt.Errorf("OpenCode login account does not match the selected CQ account")}
-		}
-	}
-	loginEmail := strings.ToLower(strings.TrimSpace(loginResult.Email))
-	targetEmail := strings.ToLower(strings.TrimSpace(accountSnapshot.Email))
-	if loginEmail != "" && targetEmail != "" && loginEmail != targetEmail {
-		return func() tea.Msg {
-			return ErrMsg{Err: fmt.Errorf("OpenCode login email does not match the selected CQ account")}
-		}
-	}
+	// OpenCode token-sharing and CQ Codex tokens do not expose a stable shared account ID.
+	// The selected CQ account is the local association; OpenCode owns the OAuth identity.
 	accountSnapshot.OpenCode = config.CloneOpenCodeCredential(loginResult.OpenCode)
 	return func() tea.Msg {
 		if err := config.UpsertManagedAccount(accountSnapshot); err != nil {
